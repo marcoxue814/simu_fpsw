@@ -1,29 +1,28 @@
 library(mvtnorm)
 library(refund)
-set.seed(1001)
+set.seed(12358)
 data_simu_M3 = t(sapply(1:100000, function(k){
-  Z  = rnorm(10)
+  Z  = rnorm(6)
   
   # generate FPC scores
-  A1 = Z[1] + Z[2] - 4*Z[3] + Z[4] + Z[5] + 4*Z[7] + rnorm(1, 0, 2)
-  A2 = 1.8*Z[1] + 0.9*Z[2] - 0.9*Z[4] - 1.8*Z[5] + rnorm(1, 0, 1)
-  A3 = Z[1] - Z[2] -Z[4] + Z[5] + rnorm(1, 0, 0.5)
-  A4 = 0.85*Z[3] - 0.85*Z[6] + 0.85*Z[7] + rnorm(1, 0, 0.25)
-  A5 = 0.5*Z[1] + 0.5*Z[2] + 0.5*Z[3] + 0.5*Z[4] + 0.5*Z[5] + 0.5*Z[6] + rnorm(1, 0, 0.125)
-  A6 = 0.3*Z[1] - 0.6*Z[2] + 0.6*Z[4] - 0.3*Z[5] + rnorm(1, 0, 0.0625)
+  A = 2*Z/(1:6)
   
   tgrid=0:50/50
   ntgrid=length(tgrid)
-  beta= 2*sqrt(2)*sin(2*pi*tgrid) + sqrt(2)*cos(2*pi*tgrid) +
-    0.5*sqrt(2)*sin(4*pi*tgrid) + 0.5*sqrt(2)*cos(4*pi*tgrid)
   
-  X = A1*sqrt(2)*sin(2*pi*tgrid) + A2*sqrt(2)*cos(2*pi*tgrid) + 
-    A3*sqrt(2)*sin(4*pi*tgrid) + A4*sqrt(2)*cos(4*pi*tgrid) +
-    A5*sqrt(2)*sin(6*pi*tgrid) + A6*sqrt(2)*cos(6*pi*tgrid)
   
-  conf = c(A1+2*A2, A2-A3, A1+A3+A4)
+  
+  X = A[1]*sqrt(2)*sin(2*pi*tgrid) + A[2]*sqrt(2)*cos(2*pi*tgrid) +
+    A[3]*sqrt(2)*sin(4*pi*tgrid) + A[4]*sqrt(2)*cos(4*pi*tgrid) +
+    A[5]*sqrt(2)*sin(6*pi*tgrid) + A[6]*sqrt(2)*cos(6*pi*tgrid)
+  
+  C1 = 0.2*A[1] + rnorm(1, 0, 1)
+  C2 = 0.1*A[2] + rnorm(1, 0, 1)
+  C3 = 0.1*A[3]+ 0.1*A[4] + rnorm(1, 0, 1)
+  
+  conf = c(C1, C2, C3)
   # response
-  Y=1+X%*%beta/ntgrid + 0.2*conf[1] + 0.2*conf[2] + 0.2*conf[3] + rnorm(1, 0, 5)
+  Y = 1 + 2*A[1]+A[2]+0.5*A[3]+0.5*A[4] + C1 + C2 + C3 + rnorm(1, 0, 5)
   
   c(Y, X, conf)
 }))
@@ -81,20 +80,20 @@ FCBPS = function(treat, conf, iterations = 1000){
     # w.curr.del<-as.matrix(w.curr.del)
     # w.curr<-as.matrix(w.curr)
     e.star = treat.star - conf.star%*%beta.curr
-    g = NULL
+    gbar = matrix(0, nrow = ntreat, ncol = ncof)
     
     for(i in 1:n){
-      g = c(g, c(w.curr[i]*as.matrix(treat.star[i,])%*%t(as.matrix(conf.star[i,]))))
+      gbar = gbar + w.curr[i]*as.matrix(treat.star[i,])%*%t(as.matrix(conf.star[i,]))
     }
     
-    g = matrix(g, nrow = 50, byrow = TRUE)
-    gbar = apply(g, 2, mean)
-    gbar = matrix(gbar, nrow = ntreat, byrow = TRUE)
+    # g = matrix(g, nrow = ntreat*ncof, byrow = TRUE)
+    # gbar = apply(g, 2, mean)
+    # gbar = matrix(gbar, nrow = ntreat, byrow = TRUE)
     # gbar <- c(w.curr.del,
     #           1/n*t(sample.weights)%*%((Ttilde - Xtilde%*%beta.curr)^2/sigmasq - 1))
     
     ##Generate mean imbalance.
-    loss1<-sum((1/n*t(as.matrix(e.star))%*%as.matrix(e.star) - sigma.curr)^2) + sum(gbar^2)
+    loss1<-sum((1/n*t(as.matrix(e.star))%*%as.matrix(e.star) - sigma.curr)^2) + sum((gbar/n)^2)
     out1<-list("loss"=loss1)
     out1
   }
@@ -122,10 +121,10 @@ FCBPS = function(treat, conf, iterations = 1000){
   
   w.opt<-exp(stabilizers - probs.opt)
   w.opt.scaled = w.opt/sum(w.opt)
-  value = opt.bal$value
+  J.opt = bal.loss(params.opt)
   R = list()
-  R$weights = w.opt.scaled 
-  R$value = value
+  R$weights = w.opt.scaled
+  R$J = J.opt
   class(R) = "FCBPS"
   
   return(R)
@@ -606,14 +605,37 @@ npFCBPS.Functional.2<-function(treat, conf, #method = 'exact',
   
 }
 
+FPCA = function(X, pve = 0.95){
+  
+  demeanX=as.matrix(X-matrix(apply(X,2,mean),nrow=nrow(X), ncol=ncol(X), byrow=TRUE))
+  
+  eigenX=eigen(cov(demeanX))
+  
+  L=which.max(cumsum(eigenX$values)/sum(eigenX$values)>0.95) # truncate at FVE=95%
+  
+  eigenfunX=eigenX$vectors[,1:L]
+  
+  eigenvalX=eigenX$values[1:L]/ncol(X)
+  
+  eigenfunX.rescale=eigenfunX*sqrt(ncol(X))
+  
+  scr = demeanX%*%eigenfunX.rescale/ncol(X)
+  
+  R = list()
+  R$efn = eigenfunX.rescale
+  R$eval = eigenvalX
+  R$scr = scr
+  return(R)
+}
+
 ##
 library(doParallel)
 
 ## Simplest Model
 registerDoParallel(detectCores())
-Model3 = foreach(B = 1:1000, .combine = 'rbind') %dopar%{
+Model3 = foreach(B = 1:100, .combine = 'rbind') %dopar%{
   set.seed(B + 1000)
-  data_raw = data_simu_M3[sample.int(nrow(data_simu_M3), 200, replace = F), ]  # sample 100 rows from data_simu
+  data_raw = data_simu_M3[sample.int(nrow(data_simu_M3), 200, replace = F), ]  # sample 200 rows from data_simu
   
   Y = data_raw[,1]
   X = data_raw[,2:52]
@@ -624,29 +646,9 @@ Model3 = foreach(B = 1:1000, .combine = 'rbind') %dopar%{
   tgrid=0:50/50
   ntgrid=length(tgrid)
   
-  # get FPC scores
-  demeanX=as.matrix(X-matrix(apply(X,2,mean),nrow=n, ncol=ncol(X), byrow=TRUE))
-  
-  # eigenX=eigen(cov(demeanX))
-  
-  # L=which.max(cumsum(eigenX$values)/sum(eigenX$values)>0.95) # truncate at FVE=95%
-  
-  # eigenfunX=eigenX$vectors[,1:L]
-  
-  # eigenfunX.rescale=eigenfunX*sqrt(ntgrid)
-  
-  
-  pcscores = fpca.sc(demeanX, pve = 0.95)$scores
-  
-  eigenfunX = fpca.sc(demeanX, pve = 0.95)$efunctions
-  
-  eigenfunX.rescale=eigenfunX*sqrt(ntgrid)
-  
-  eigenvalX = fpca.sc(demeanX, pve = 0.95)$evalues
-  
-  L = ncol(pcscores)
-  
-  treat=demeanX%*%eigenfunX.rescale/ntgrid
+  fpcaX = FPCA(X, pve = 0.95)
+  treat = fpcaX$scr
+  efnX = fpcaX$efn
   
   ntreat=ncol(treat)
   
@@ -658,55 +660,55 @@ Model3 = foreach(B = 1:1000, .combine = 'rbind') %dopar%{
   fcbps=FCBPS(treat, conf)
   npfcbps = npFCBPS.Functional(treat, conf, rho = 0.01)
   npfcbps.1 = npFCBPS.Functional.1(treat, conf, rho = 0.01)
-  npfcbps.2 = npFCBPS.Functional.2(treat, cnof, rho = 0.01)
+  npfcbps.2 = npFCBPS.Functional.2(treat, conf, rho = 0.01)
   
-  # weighted correlation
+  # # weighted correlation
+  # 
+  # xy=cbind(treat,conf)
+  # 
+  # zz.para=cov.wt(xy,wt=c(fcbps$weights),cor=TRUE, center=FALSE)
+  # zz.np = cov.wt(xy, wt = c(npfcbps$w), cor=TRUE, center=FALSE)
+  # zz.np.1 = cov.wt(xy, wt = c(npfcbps.1$w), cor=TRUE, center=FALSE)
+  # zz.np.2 = cov.wt(xy, wt = c(npfcbps.2$w), cor=TRUE, center=FALSE)
+  # 
+  # Corw.para=zz.para$cor[1:ntreat,(ntreat+1):(ntreat+nconf)]
+  # Corw.np = zz.np$cor[1:ntreat,(ntreat+1):(ntreat+nconf)] 
+  # Corw.np.1 = zz.np.1$cor[1:ntreat,(ntreat+1):(ntreat+nconf)]
+  # Corw.np.2 = zz.np.2$cor[1:ntreat,(ntreat+1):(ntreat+nconf)]
+  # 
+  # Coru=cor(cbind(treat,conf))[1:ntreat,(ntreat+1):(ntreat+nconf)]
+  # 
+  # # FLR
+  # 
+  # 
+  # fitw.para=lm(Y~treat, weights=fcbps$weights) # with propensity score of parametric method
+  # fitw.np=lm(Y~treat, weights = npfcbps$w)
+  # fitw.np.1=lm(Y~treat, weights = npfcbps.1$w)
+  # fitw.np.2=lm(Y~treat, weights = npfcbps.2$w)
+  # 
+  # 
+  # fitu=lm(Y~treat) # without weighting
+  # 
+  # # treatment effect
+  # 
+  # beta.hatw.para=eigenfunX.rescale%*%fitw.para$coefficients[2:(1+ntreat)]
+  # beta.hatw.np = eigenfunX.rescale%*%fitw.np$coefficients[2:(1+ntreat)]
+  # beta.hatw.np.1 = eigenfunX.rescale%*%fitw.np.1$coefficients[2:(1+ntreat)]
+  # beta.hatw.np.2 = eigenfunX.rescale%*%fitw.np.2$coefficients[2:(1+ntreat)]
+  # 
+  # beta.hatu=eigenfunX.rescale%*%fitu$coefficients[2:(1+ntreat)]
+  # 
+  # 
+  # # find the mean of the absolute value of the correlation between treat and conf
+  # absCorw.para = mean(abs(Corw.para))
+  # absCorw.np = mean(abs(Corw.np))
+  # absCorw.np.1 = mean(abs(Corw.np.1))
+  # absCorw.np.2 = mean(abs(Corw.np.2))
+  # 
+  # absCoru = mean(abs(Coru))
+  # 
   
-  xy=cbind(treat,conf)
-  
-  zz.para=cov.wt(xy,wt=c(fcbps$weights),cor=TRUE, center=FALSE)
-  zz.np = cov.wt(xy, wt = c(npfcbps$w), cor=TRUE, center=FALSE)
-  zz.np.1 = cov.wt(xy, wt = c(npfcbps.1$w), cor=TRUE, center=FALSE)
-  zz.np.2 = cov.wt(xy, wt = c(npfcbps.2$w), cor=TRUE, center=FALSE)
-  
-  Corw.para=zz.para$cor[1:ntreat,(ntreat+1):(ntreat+nconf)]
-  Corw.np = zz.np$cor[1:ntreat,(ntreat+1):(ntreat+nconf)] 
-  Corw.np.1 = zz.np.1$cor[1:ntreat,(ntreat+1):(ntreat+nconf)]
-  Corw.np.2 = zz.np.2$cor[1:ntreat,(ntreat+1):(ntreat+nconf)]
-  
-  Coru=cor(cbind(treat,conf))[1:ntreat,(ntreat+1):(ntreat+nconf)]
-  
-  # FLR
-  
-  
-  fitw.para=lm(Y~treat, weights=fcbps$weights) # with propensity score of parametric method
-  fitw.np=lm(Y~treat, weights = npfcbps$w)
-  fitw.np.1=lm(Y~treat, weights = npfcbps.1$w)
-  fitw.np.2=lm(Y~treat, weights = npfcbps.2$w)
-  
-  
-  fitu=lm(Y~treat) # without weighting
-  
-  # treatment effect
-  
-  beta.hatw.para=eigenfunX.rescale%*%fitw.para$coefficients[2:(1+ntreat)]
-  beta.hatw.np = eigenfunX.rescale%*%fitw.np$coefficients[2:(1+ntreat)]
-  beta.hatw.np.1 = eigenfunX.rescale%*%fitw.np.1$coefficients[2:(1+ntreat)]
-  beta.hatw.np.2 = eigenfunX.rescale%*%fitw.np.2$coefficients[2:(1+ntreat)]
-  
-  beta.hatu=eigenfunX.rescale%*%fitu$coefficients[2:(1+ntreat)]
-  
-  
-  # find the mean of the absolute value of the correlation between treat and conf
-  absCorw.para = mean(abs(Corw.para))
-  absCorw.np = mean(abs(Corw.np))
-  absCorw.np.1 = mean(abs(Corw.np.1))
-  absCorw.np.2 = mean(abs(Corw.np.2))
-  
-  absCoru = mean(abs(Coru))
-  
-  
-  c(absCorw.para, absCorw.np, absCorw.np.1, absCorw.np.2, absCoru, beta.hatw.para, beta.hatw.np, beta.hatw.np.1, beta.hatw.np.2, beta.hatu)
+  rbind(fcbps$weights, npfcbps$w, npfcbps.1$w, npfcbps.2)
   
 }
 

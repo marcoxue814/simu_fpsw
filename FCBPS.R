@@ -101,9 +101,5 @@ FCBPS = function(treat, conf, iterations = 1000){
   return(R)
 }
 
-# rm(list = ls())
-# set.seed(123456)
-# y = cbind(rnorm(50), rnorm(50), runif(50), rexp(50))
-# x = cbind(2*rnorm(50), rnorm(50)^2, rnorm(50)*rexp(50))
-# FCBPS(y,x)
+
 

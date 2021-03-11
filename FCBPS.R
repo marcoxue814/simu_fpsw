@@ -57,7 +57,7 @@ FCBPS = function(treat, conf, iterations = 1000){
       g = c(g, c(w.curr[i]*as.matrix(treat.star[i,])%*%t(as.matrix(conf.star[i,]))))
     }
     
-    g = matrix(g, nrow = 50, byrow = TRUE)
+    g = matrix(g, nrow = n, byrow = TRUE)
     gbar = apply(g, 2, mean)
     gbar = matrix(gbar, nrow = ntreat, byrow = TRUE)
     # gbar <- c(w.curr.del,
